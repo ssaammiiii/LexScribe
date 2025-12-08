@@ -1,5 +1,5 @@
 def main():
-    print("Hello from transcriber!")
+    print("Hello from lexscribe!")
 
 
 if __name__ == "__main__":

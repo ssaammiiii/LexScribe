@@ -157,12 +157,18 @@ def pooling_chunks(all_summaries,all_actions):
     )
     return json.loads(response.choices[0].message.content)
 
-def fetching_transcript(audio_file_path):
+def fetching_transcript(transcript_file_path):
     print(f"fetching the raw transcript")
-    raw_text = get_raw_transcription(audio_file_path)
-    if not raw_text:
-        print("no transcript was generated")
+    try :
+        with open(transcript_file_path, "r", encoding="utf-8") as f:
+            raw_text = f.read()
+    except FileNotFoundError:
+        print(f" Error: The file '{transcript_file_path}' was not found.")
         return
+    
+    if not raw_text:
+        print("No transcript was generated")
+
      #chunking
     chunks = chunk_text(raw_text)
     print(f'processing {len(chunks)} chunks of the Transcript')
@@ -208,8 +214,8 @@ def fetching_transcript(audio_file_path):
     print("DONE. Saved to LEGAL_RESULT.json")
 
 if __name__ == "__main__":
-    target = "output.mp3"
+    target = "output.txt"
     if os.path.exists(target):
         fetching_transcript(target)
     else:
-        print("output.mp3 not found")
+        print("output.txt not found")

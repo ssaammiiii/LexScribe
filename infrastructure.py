@@ -1,3 +1,4 @@
+
 import os
 import subprocess
 import static_ffmpeg 
@@ -13,8 +14,8 @@ def get_azure_client():
 
     return AzureOpenAI(
         api_key=os.getenv("AZURE_OPENAI_KEY"),
-        api_version="2025-01-01-preview",
-        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT") 
+        api_version= "2025-01-01-preview",
+        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
         )
 
 # convert video to audio 
@@ -31,7 +32,7 @@ def video_to_audio(input_file, output_file):
     
     ] 
     video_path = "sample_video.mp4"
-    print(f" Extracting audio from {video_path}...")
+    print(f"🎬 Extracting audio from {video_path}...")
     try:
         subprocess.run(ffmpeg_cmd, check=True)
         print(f"Conversion successful: {output_file}")
@@ -39,7 +40,7 @@ def video_to_audio(input_file, output_file):
         print(f"Error during conversion: {e}")
 
     
-def get_raw_transcription(audio_file):
+def get_raw_transcription(audio_file, output_path="transcription_output.txt"):
     
     deployment_name = "whisper"
 
@@ -86,7 +87,7 @@ def get_raw_transcription(audio_file):
             
             os.remove(chunk_filename)
             
-        return " ".join(full_transcript)
+        final_text =  " ".join(full_transcript)
 
     # --- CASE 2: Small File ---
     else:
@@ -97,7 +98,13 @@ def get_raw_transcription(audio_file):
                 file=audio_file,
                 response_format="json"
             )
-        return response.text
-    
-    
-#example usage 
+        final_text = response.text
+
+    try:
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(final_text)
+        print(f"✅ Transcription successfully saved to: {output_path}")
+    except Exception as e:
+        print(f"⚠️ Error saving transcription to file: {e}")
+        
+    return final_text

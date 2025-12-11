@@ -221,6 +221,7 @@ def fetching_transcript(transcript_file_path):
     final_output = generate_legal_report(raw_text)
     
     # SAVE TO DISK (Local behavior)
+    
     with open("LEGAL_RESULT.json", "w", encoding="utf-8") as f:
         json.dump(final_output, f, indent=2, ensure_ascii=False) 
         

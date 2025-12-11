@@ -11,5 +11,4 @@ dependencies = [
     "python-dotenv>=1.2.1",
     "requests>=2.32.5",
     "static-ffmpeg>=2.13",
-    "whisperx>=3.7.4",
 ]

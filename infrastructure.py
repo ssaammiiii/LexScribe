@@ -32,7 +32,7 @@ def video_to_audio(input_file, output_file):
     
     ] 
     video_path = "sample_video.mp4"
-    print(f"🎬 Extracting audio from {video_path}...")
+    print(f" Extracting audio from {video_path}...")
     try:
         subprocess.run(ffmpeg_cmd, check=True)
         print(f"Conversion successful: {output_file}")
@@ -103,8 +103,8 @@ def get_raw_transcription(audio_file, output_path="transcription_output.txt"):
     try:
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(final_text)
-        print(f"✅ Transcription successfully saved to: {output_path}")
+        print(f" Transcription successfully saved to: {output_path}")
     except Exception as e:
-        print(f"⚠️ Error saving transcription to file: {e}")
+        print(f" Error saving transcription to file: {e}")
         
     return final_text

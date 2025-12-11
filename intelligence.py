@@ -157,65 +157,76 @@ def pooling_chunks(all_summaries,all_actions):
     )
     return json.loads(response.choices[0].message.content)
 
-def fetching_transcript(transcript_file_path):
-    print(f"fetching the raw transcript")
-    try :
-        with open(transcript_file_path, "r", encoding="utf-8") as f:
-            raw_text = f.read()
-    except FileNotFoundError:
-        print(f" Error: The file '{transcript_file_path}' was not found.")
-        return
-    
-    if not raw_text:
-        print("No transcript was generated")
-
-     #chunking
+def generate_legal_report(raw_text):
+    """
+    PURE LOGIC: Takes text string -> Returns Dict.
+    Used by BOTH Local Script and Azure Function.
+    """
+    # 1. Chunking
     chunks = chunk_text(raw_text)
-    print(f'processing {len(chunks)} chunks of the Transcript')
+    print(f'Processing {len(chunks)} chunks...')
     
     full_transcript = []
-    chunk_summaries =[]
+    chunk_summaries = []
     chunk_actions = []
     
-    # LOGIC FIX 2: Initialize Context
     current_context = "Start of meeting. Speakers are unknown."
 
-    for i,chunk in enumerate(chunks):
-        print(f'processing {i+1}/{len(chunks)}')
+    for i, chunk in enumerate(chunks):
         try:
-            # LOGIC FIX 3: Pass context to the function
+            # Analyze
             result = analyze_chunks(chunk, current_context)
             
+            # Aggregate
             full_transcript.extend(result.get("transcript", []))
             chunk_summaries.append(result.get("summary", ""))
             chunk_actions.extend(result.get("action_items", []))
             
-            # LOGIC FIX 4: Update context for the next loop
+            # Update Context
             last_role = result.get("last_speaker_role", "Unknown")
-            current_context = f"Previous chunk ended. The last speaker was {last_role}."
+            current_context = f"Previous chunk ended. Last speaker was {last_role}."
 
-        except Exception as e :
+        except Exception as e:
             print(f"Error in chunk {i}: {e}")
-            
-    #final report
-    final_report = pooling_chunks(chunk_summaries,chunk_actions)
+
+    # 2. Final Pooling
+    final_report = pooling_chunks(chunk_summaries, chunk_actions)
     
-    #final output
+    # 3. Build Output 
     final_output = {
-        
         "transcript": full_transcript,
         "summary": final_report.get("final_summary"),
-        "action_items": final_report.get("final_action_items")  
+        "action_items": final_report.get("final_action_items")
     }
     
-    # Save the file
-    with open("LEGAL_RESULT.json", "w") as f:
-        json.dump(final_output, f, indent=2)
+    return final_output  
+
+def fetching_transcript(transcript_file_path):
+    """
+    LOCAL ONLY: Reads file -> Calls Logic -> Saves File.
+    """
+    print(f"Reading transcript from: {transcript_file_path}")
+    
+    try:
+        with open(transcript_file_path, "r", encoding="utf-8") as f:
+            raw_text = f.read()
+    except FileNotFoundError:
+        print(" File not found.")
+        return
+
+    if not raw_text:
+        return
+
+    # CALL THE SHARED LOGIC
+    final_output = generate_legal_report(raw_text)
+    
+    # SAVE TO DISK (Local behavior)
+    with open("LEGAL_RESULT.json", "w", encoding="utf-8") as f:
+        json.dump(final_output, f, indent=2, ensure_ascii=False) 
+        
     print("DONE. Saved to LEGAL_RESULT.json")
 
 if __name__ == "__main__":
     target = "output.txt"
     if os.path.exists(target):
         fetching_transcript(target)
-    else:
-        print("output.txt not found")

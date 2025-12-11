@@ -25,7 +25,14 @@ def Transcriber(req: func.HttpRequest) -> func.HttpResponse:
     if not video_input:
         return func.HttpResponse("Missing 'video_url'.", status_code=400)
 
-    # 2. SETUP TEMP FILES
+    # 2. SETUP TEMP FILES 
+    '''
+    ffmpeg designed to work with physical files on a hard drive, not invisible data floating in RAM.
+    We cannot just stream the "bytes" of the video directly into FFmpeg easily. It expects a file path like input.mp4
+    We create a temporary file (temp_input.mp4) to "park" the data so FFmpeg has a physical address to read from.
+    
+    
+    '''
     temp_dir = tempfile.gettempdir()
     video_path = os.path.join(temp_dir, "temp_input.mp4")
     audio_path = os.path.join(temp_dir, "temp_audio.mp3")

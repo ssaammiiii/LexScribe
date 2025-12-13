@@ -3,16 +3,18 @@ import json
 from openai import AzureOpenAI
 from dotenv import load_dotenv
 from infrastructure import get_raw_transcription
+
 load_dotenv()
 
 client = AzureOpenAI(
     api_key = os.getenv("AZURE_OPENAI_API_KEY"),
-    api_version= os.getenv("AZURE_OPENAI_API_VERSION"),
+    api_version= "2025-01-01-preview",
     azure_endpoint= os.getenv("AZURE_OPENAI_ENDPOINT")    
 )
 deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
 
-def chunk_text(text,max_length = 12000):
+# --- HELPER 1: CHUNKING ---
+def chunk_text(text, max_length=12000):
     lines = text.split('\n')
     chunks = []
     current_chunk = ""
@@ -27,142 +29,92 @@ def chunk_text(text,max_length = 12000):
         chunks.append(current_chunk)
     return chunks
 
-# LOGIC FIX 1: Added 'previous_context' argument
+# --- HELPER 2: ANALYZE SINGLE CHUNK ---
 def analyze_chunks(chunked_text, previous_context):
     system_prompt = f"""
     You are a legal-domain transcription analysis assistant.
     
     CRITICAL CONTEXT FROM PREVIOUS PART: "{previous_context}"
-    (Use this to know who was speaking last. If the previous part ended with the Lawyer asking a question, the Client is likely answering now).
+    
+    Tasks:
+    1. DIARIZATION: Assign utterances to "Client", "Lawyer 1", "Lawyer 2", etc.
+    2. TRANSCRIPT STRUCTURING: List of {{"speaker": "...", "text": "..."}}
+    3. SUMMARY: Concise summary of this chunk.
+    4. ACTION ITEMS: tasks/decisions.
+    5. LAST SPEAKER: Identify the very last speaker role.
 
-    You will receive a raw transcript that  has NO speaker labels.
-
-   Your tasks:
-
-    1. DIARIZATION (MULTI-LAWYER SUPPORT)
-       - Assign each utterance to: "Client", "Lawyer 1", "Lawyer 2", etc., or "Unknown".
-       - Distinguish between lawyers based on:
-         * Introductions (e.g., "I am Mr. Smith").
-         * Opposing viewpoints (Defense vs. Prosecution).
-         * Seniority/Role (Partner vs. Associate).
-       - Keep specific identities consistent (e.g., if Lawyer 1 is "Sarah", keep her as Lawyer 1).
-       
-    2. TRANSCRIPT STRUCTURING
-       - Split the transcript into entries.
-       - Each entry must contain:
-           "speaker"
-           "text"
-
-    3. SUMMARY
-       - Provide a clear, concise summary of the meeting.
-
-    4. ACTION ITEMS
-       - Extract all tasks, responsibilities, decisions, or follow-ups mentioned.
-       
-    5. LAST SPEAKER (Internal Logic)
-       - Identify who the very last speaker was in this chunk.
-
-    OUTPUT FORMAT (MANDATORY)
-    You must always respond ONLY with this JSON structure:
-
+    OUTPUT JSON ONLY:
     {{
-      "transcript": [
+      "transcript": [ 
         {{
           "speaker": "Client | Lawyer 1 | Lawyer 2 | Unknown",
           "text": "<text>"
-        }}
+        }} 
       ],
       "summary": "<summary>",
-      "action_items": [
-        "<action item 1>",
-        "<action item 2>"
-      ],
+      "action_items": ["<action item 1>", "<action item 2>"],
       "last_speaker_role": "Client | Lawyer 1 | Lawyer 2"
     }}
-
-
-    RULES:
-    - Never output text outside JSON.
-    - Never hallucinate  content.
-    - Never assume speakers without contextual support.
-    - Keep speaker labeling consistent throughout.
-    - If the input is empty or unusable, output empty JSON fields in the same structure.
     """
     
     response = client.chat.completions.create(
-        model = deployment,
-        messages = [
-            
+        model=deployment,
+        messages=[
             {"role": "system", "content": system_prompt},
-            {"role" : "user" , "content" : f"Here is the transcript chunk:\n\n{chunked_text}\n\nPlease analyze it as per the instructions."}
+            {"role": "user", "content": f"Chunk:\n\n{chunked_text}"}
         ],
-        response_format= {"type": "json_object"},
+        response_format={"type": "json_object"},
         temperature=0.2
     )
-    
     return json.loads(response.choices[0].message.content)
 
-
-def pooling_chunks(all_summaries,all_actions):
-    """
-    combines the chunked summaries and action item with the help of LLM
-    """
-
+# --- HELPER 3: POOLING RESULTS (With Keywords & Detailed Actions) ---
+def pooling_chunks(all_summaries, all_actions):
     input_data = f""" 
-    
         CHUNKED SUMMARIES : {json.dumps(all_summaries)}
         ALL ACTION ITEMS : {json.dumps(all_actions)}
-
     """
     prompt = """
+    You are a Senior Legal Partner.
     
+    Tasks:
+    1. Merge summaries into one Executive Summary.
+    2. Deduplicate and refine Action Items into a detailed checklist.
+       - Each item must have an ID, Text, Assigned To, and Completed status.
+    3. Extract 3-5 high-value "Keywords" (e.g., "Contract Review", "Liability").
     
-    You are a Senior Legal Partner responsible for producing a final, high-level deliverable.
-
-            Input will contain:
-            - Multiple chunk summaries
-            - Multiple chunk action-item lists
-
-            Your tasks:
-            1. Merge all segment summaries into a single, cohesive Executive Summary.
-            - Preserve all important details.
-            - Ensure logical flow and no contradictions.
-            - Eliminate repetition.
-
-            2. Combine all action items into one clean, deduplicated checklist.
-            - Remove duplicates.
-            - Merge similar items.
-            - Rewrite items to be clear, actionable, and specific.
-
-            Output ONLY the following JSON:
-
-            {
-            "final_summary": "<merged executive summary>",
-            "final_action_items": [
-                "<item 1>",
-                "<item 2>",
-                "<item 3>"
-            ]
-            }
-            
+    Output JSON ONLY:
+    {
+      "final_summary": "<merged executive summary>",
+      "keywords": ["Tag1", "Tag2"],
+      "final_action_items": [
+          {
+            "id": "1",
+            "text": "Draft the NDA clause...",
+            "assigned_to": "Lawyer 1",
+            "completed": false
+          }
+      ]
+    }
     """
     response = client.chat.completions.create(
-        
-        model = deployment,
-        messages= [
-            { "role" : "system", "content" : prompt},
-             { "role" : "user", "content" :   input_data},   
+        model=deployment,
+        messages=[
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": input_data},   
         ],
-        response_format= { "type" : "json_object"}        
+        response_format={"type": "json_object"}        
     )
     return json.loads(response.choices[0].message.content)
 
+# ======================================================
+#  THE SHARED BRAIN
+# ======================================================
 def generate_legal_report(raw_text):
     """
     PURE LOGIC: Takes text string -> Returns Dict.
     Used by BOTH Local Script and Azure Function.
     """
-    # 1. Chunking
     chunks = chunk_text(raw_text)
     print(f'Processing {len(chunks)} chunks...')
     
@@ -192,19 +144,33 @@ def generate_legal_report(raw_text):
     # 2. Final Pooling
     final_report = pooling_chunks(chunk_summaries, chunk_actions)
     
-    # 3. Build Output 
+    
+    # A. Add Timestamp (Hardcoded as requested)
+    for entry in full_transcript:
+        entry["timestamp"] = "00:00"
+
+    # B. Calculate Unique Speaker Count (Python is better at math than LLMs)
+    unique_speakers = set()
+    for entry in full_transcript:
+        if entry.get("speaker"):
+            unique_speakers.add(entry["speaker"])
+    speaker_count = len(unique_speakers)
+
+    # 4. Build Final Output
     final_output = {
         "transcript": full_transcript,
         "summary": final_report.get("final_summary"),
-        "action_items": final_report.get("final_action_items")
+        "action_items": final_report.get("final_action_items"),
+        "keywords": final_report.get("keywords"),
+        "speaker_count": speaker_count  
     }
     
     return final_output  
 
+# ======================================================
+#  LOCAL TEST WRAPPER
+# ======================================================
 def fetching_transcript(transcript_file_path):
-    """
-    LOCAL ONLY: Reads file -> Calls Logic -> Saves File.
-    """
     print(f"Reading transcript from: {transcript_file_path}")
     
     try:
@@ -217,10 +183,7 @@ def fetching_transcript(transcript_file_path):
     if not raw_text:
         return
 
-    # CALL THE SHARED LOGIC
     final_output = generate_legal_report(raw_text)
-    
-    # SAVE TO DISK (Local behavior)
     
     with open("LEGAL_RESULT.json", "w", encoding="utf-8") as f:
         json.dump(final_output, f, indent=2, ensure_ascii=False) 
